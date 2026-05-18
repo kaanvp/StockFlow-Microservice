@@ -1,4 +1,4 @@
-# StockFlow 🚀
+# StockFlow 
 
 > Mikroservis tabanlı envanter ve sipariş yönetim sistemi  
 > .NET 9 · YARP · gRPC · RabbitMQ · Elasticsearch · Redis · OpenTelemetry · Docker
