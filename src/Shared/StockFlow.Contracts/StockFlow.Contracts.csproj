@@ -1,9 +1,27 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" Version="3.34.1" />
+    <PackageReference Include="Grpc.Core.Api" Version="2.80.0" />
+    <PackageReference Include="Grpc.Tools" Version="2.80.0">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Grpc.AspNetCore" Version="2.70.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="Protos\stock.proto" GrpcServices="Both" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\StockFlow.Shared\StockFlow.Shared.csproj" />
+  </ItemGroup>
 
 </Project>

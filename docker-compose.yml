@@ -1,0 +1,213 @@
+name: stockflow
+
+volumes:
+  sqlserver_data:
+  rabbitmq_data:
+  redis_data:
+  es_data:
+  seq_data:
+
+services:
+  # ─── Infra ───────────────────────────────────────────────────────
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      SA_PASSWORD: "StockFlow_123!"
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: "Developer"
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    healthcheck:
+      test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "StockFlow_123!" -C -Q "SELECT 1" || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: redis-cli ping || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  elasticsearch:
+    image: elasticsearch:8.14.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: curl -sf http://localhost:9200/_cluster/health || exit 1
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  kibana:
+    image: kibana:8.14.0
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    ports:
+      - "6831:6831/udp"
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    command: --config.file=/etc/prometheus/prometheus.yml
+    depends_on:
+      - gateway
+      - product-service
+
+  seq:
+    image: datalust/seq:latest
+    ports:
+      - "5341:5341"
+      - "8080:80"
+    volumes:
+      - seq_data:/data
+    environment:
+      - ACCEPT_EULA=Y
+      - SEQ_FIRSTRUN_NOAUTHENTICATION=true
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  # ─── App Services ────────────────────────────────────────────────
+
+  product-service:
+    build:
+      context: .
+      dockerfile: src/Services/ProductService/Dockerfile
+    ports:
+      - "5001:5001"
+      - "5011:5011"
+    environment:
+      - ConnectionStrings__SqlServer=Server=sqlserver,1433;Database=StockFlow_Product;User Id=sa;Password=StockFlow_123!;TrustServerCertificate=True;
+      - Jwt__Secret=StockFlow-Demo-SuperSecret-Key-Min32Chars!!
+      - Jwt__Issuer=StockFlow
+      - Jwt__Audience=StockFlow
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Username=guest
+      - RabbitMQ__Password=guest
+      - Elasticsearch__Url=http://elasticsearch:9200
+      - Seq__Url=http://seq:5341
+      - Otel__Endpoint=http://jaeger:4317
+      - ASPNETCORE_ENVIRONMENT=Development
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    restart: on-failure
+
+  order-service:
+    build:
+      context: .
+      dockerfile: src/Services/OrderService/Dockerfile
+    ports:
+      - "5002:5002"
+    environment:
+      - ConnectionStrings__SqlServer=Server=sqlserver,1433;Database=StockFlow_Order;User Id=sa;Password=StockFlow_123!;TrustServerCertificate=True;
+      - Jwt__Secret=StockFlow-Demo-SuperSecret-Key-Min32Chars!!
+      - Jwt__Issuer=StockFlow
+      - Jwt__Audience=StockFlow
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Username=guest
+      - RabbitMQ__Password=guest
+      - Grpc__ProductService=http://product-service:5011
+      - Seq__Url=http://seq:5341
+      - Otel__Endpoint=http://jaeger:4317
+      - ASPNETCORE_ENVIRONMENT=Development
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: on-failure
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: src/Services/NotificationService/Dockerfile
+    ports:
+      - "5003:5003"
+    environment:
+      - ASPNETCORE_URLS=http://+:5003
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Username=guest
+      - RabbitMQ__Password=guest
+      - Seq__Url=http://seq:5341
+      - ASPNETCORE_ENVIRONMENT=Development
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: on-failure
+
+  gateway:
+    build:
+      context: .
+      dockerfile: src/Gateway/Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      - ASPNETCORE_URLS=http://+:5000
+      - Jwt__Secret=StockFlow-Demo-SuperSecret-Key-Min32Chars!!
+      - Jwt__Issuer=StockFlow
+      - Jwt__Audience=StockFlow
+      - Seq__Url=http://seq:5341
+      - Otel__Endpoint=http://jaeger:4317
+      - ASPNETCORE_ENVIRONMENT=Development
+    depends_on:
+      - product-service
+      - order-service
+      - notification-service
+    restart: on-failure

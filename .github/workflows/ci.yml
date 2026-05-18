@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore -c Release
+
+      - name: Unit Tests
+        run: dotnet test tests/ProductService.Tests --filter "Category=Unit" --no-build -c Release --logger "console;verbosity=detailed"
+
+      - name: Integration Tests
+        run: dotnet test tests/ProductService.Tests --filter "Category=Integration" --no-build -c Release --logger "console;verbosity=detailed"
+        # Testcontainers Docker'ı otomatik bulur, runner'da Docker mevcut
+
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker images
+        run: docker compose build
