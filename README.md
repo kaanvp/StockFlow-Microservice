@@ -120,6 +120,4 @@ dotnet user-secrets init --project src/Services/ProductService
 dotnet user-secrets set "ConnectionStrings:SqlServer" "..."
 ```
 
-## License
 
-MIT
